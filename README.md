@@ -1,52 +1,36 @@
 # CloudForge AWS
 
-An event-driven CSV processing platform on AWS, built with Python, Terraform and React. Users submit files, monitor asynchronous validation jobs, inspect bounded error summaries and download JSON reports.
+[![CI and security checks](https://github.com/MDCran/cloudforge-aws/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MDCran/cloudforge-aws/actions/workflows/ci.yml)
+
+An event-driven CSV processing platform built with AWS serverless services. Upload files, follow asynchronous validation jobs, review bounded error summaries, and download JSON reports from a responsive operations dashboard.
+
+## App screenshots
+
+The dashboard supports demo, local, and AWS connection modes. This capture uses synthetic demonstration data and does not represent a deployed AWS environment.
 
 ![CloudForge operations dashboard](docs/screenshots/overview.png)
 
-> The screenshot uses **synthetic demonstration data**. In demo and local modes, the interface labels synthetic or simulated data. It does not show deployed AWS telemetry.
+## Stack
 
-[Architecture](ARCHITECTURE.md) · [Deployment](DEPLOYMENT.md) · [Security](SECURITY.md) · [Costs](COSTS.md) · [Operations](OPERATIONS.md) · [Troubleshooting](TROUBLESHOOTING.md) · [Case study](CLOUD_CASE_STUDY.md)
+- **Dashboard:** React, TypeScript, Vite, Tailwind CSS, and Recharts
+- **API and processing:** Python 3.12, FastAPI, AWS Lambda
+- **AWS services:** API Gateway, Cognito, S3, EventBridge, SQS, DynamoDB, CloudWatch, and SNS
+- **Infrastructure and delivery:** Terraform, GitHub Actions, and short-lived AWS credentials through OIDC
+- **Local development:** Docker Compose and Moto-backed AWS service emulation
 
-[![CI](https://github.com/MDCran/cloudforge-aws/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MDCran/cloudforge-aws/actions/workflows/ci.yml)
+## Getting started
 
-## Platform flow
+Requirements: Docker, Node.js 22, and npm. The local API uses in-memory Moto services and local-only credentials. It does not need an AWS account or Cognito setup, and its data clears when the API stops.
 
-```mermaid
-flowchart LR
-  Web[React and TypeScript] -->|Cognito JWT| API[API Gateway HTTP API]
-  API --> ApiLambda[Python API Lambda]
-  ApiLambda --> DynamoDB[(DynamoDB jobs)]
-  Web -->|Presigned CSV upload| Uploads[(Private versioned S3)]
-  Uploads --> EB[EventBridge]
-  EB --> SQS[SQS queue and DLQ]
-  SQS --> Worker[Python worker Lambda]
-  Worker --> Reports[(Private results S3)]
-  Worker --> DynamoDB
-  API --> CloudWatch[CloudWatch metrics, logs, dashboard and alarms]
-  Worker --> CloudWatch
-  CloudWatch --> SNS[SNS email alerts]
-  GitHub[GitHub Actions and OIDC] --> Terraform[Terraform per environment]
-  Terraform --> API
-```
-
-## What it does
-
-- Creates authenticated, owner-scoped jobs with idempotency keys, status filters and cursor pagination.
-- Accepts private presigned uploads that restrict object key, file size, content type, encryption header and five-minute lifetime.
-- Processes CSV data through S3 events, EventBridge, SQS and an independently permissioned Lambda worker.
-- Reports row/column counts, missing values, required-field validation, duplicate rows and numeric min/max/mean. Invalid rows yield bounded error samples.
-- Stores job history and attempt state. Conditional transitions, expiring worker leases, partial batch failures and a dead-letter queue protect the asynchronous lifecycle.
-- Secures private API routes with Cognito JWTs and restricts operations metrics to the `operators` Cognito group.
-- Tracks native service health and bounded CloudWatch operational metrics. Infrastructure CI uses short-lived OIDC roles and reviewed stored plans.
-- Offers a responsive dashboard, file upload flow, job detail, history, result download, system monitoring, light/dark themes and an always-labelled synthetic demo mode.
-
-## Local quick start
-
-Requirements: Docker, Node 22 and npm. Local APIs use in-memory Moto services and fixed local-only credentials inside the simulator. Data clears when the API stops. No AWS account or authentication service is needed.
+From the repository root, start the local API and worker:
 
 ```powershell
 docker compose up --build -d
+```
+
+In a second terminal, start the dashboard in local mode:
+
+```powershell
 Set-Location apps/web
 npm ci
 $env:VITE_MODE = 'local'
@@ -54,79 +38,62 @@ $env:VITE_API_URL = 'http://localhost:8000'
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). For a no-server interactive tour, set `VITE_MODE=demo` and `npm run dev`; the header clearly identifies synthetic content. Stop the simulator with `docker compose down`.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). To explore the dashboard without starting the API, run it in demo mode:
 
-On Windows, `scripts/tasks.ps1 setup`, `scripts/tasks.ps1 test`, `scripts/tasks.ps1 lint`, `scripts/tasks.ps1 terraform-validate`, and `scripts/tasks.ps1 smoke-test` provide PowerShell alternatives. `make setup`, `make test`, `make lint`, `make terraform-validate`, `make security` and `make smoke-test` are provided for environments with GNU Make.
-
-## Job API
-
-API routes are authenticated with Cognito except `GET /health`.
-
-| Method | Path | Behavior |
-|---|---|---|
-| `GET` | `/health` | Public service liveness. |
-| `POST` | `/v1/jobs` | Create an owner-scoped job; requires `Idempotency-Key`. |
-| `GET` | `/v1/jobs?status=COMPLETED&limit=25` | List/filter jobs for the authenticated owner. |
-| `GET` | `/v1/jobs/{jobId}` | Read an owned job and recent event history. |
-| `POST` | `/v1/jobs/{jobId}/cancel` | Cancel before processing takes its lease. |
-| `POST` | `/v1/uploads/presign` | Obtain a five-minute, size-restricted upload policy. |
-| `GET` | `/v1/jobs/{jobId}/result` | Get a five-minute report download URL after completion. |
-| `GET` | `/v1/metrics/summary` | Read recent owner-job counts and environment queue metrics; operators only. |
-
-Create a job (the filename stays a plain basename):
-
-```http
-POST /v1/jobs
-Authorization: Bearer <Cognito access token>
-Idempotency-Key: monthly-orders-202610
-Content-Type: application/json
-
-{
-  "name": "October order validation",
-  "filename": "orders.csv",
-  "size": 267,
-  "required_columns": ["customer", "order_id"],
-  "numeric_columns": ["amount"]
-}
+```powershell
+$env:VITE_MODE = 'demo'
+npm run dev
 ```
 
-Send `POST /v1/uploads/presign` with `{"job_id":"<job UUID>"}`, then upload the unchanged CSV using the returned signed form fields. The API enforces exact declared object size. Poll `GET /v1/jobs/{jobId}` and retrieve a result only once the job state is `COMPLETED`.
+Demo mode uses synthetic records and simulated outcomes. Stop the local services from the repository root with `docker compose down`.
 
-To run the optional bounded smoke workflow, configure the local API and run `uv run python scripts/smoke.py`. A remote API requires an explicit `--live` flag and `CLOUDFORGE_ACCESS_TOKEN`; it creates one job and writes one upload/result object. The basic local test suite is credential-free.
+PowerShell helpers are available through `scripts/tasks.ps1` (`setup`, `test`, `lint`, `terraform-validate`, and `smoke-test`). Environments with GNU Make can use the equivalent targets in the `Makefile`.
 
-## Dashboard modes
+## Configuration
 
-| `VITE_MODE` | Data and connection |
+Dashboard variables are documented in [`apps/web/.env.example`](apps/web/.env.example). The default mode is demo.
+
+| Mode | Data and connection |
 |---|---|
-| `demo` | Synthetic sample records, simulated outcomes and downloadable synthetic reports. No API or AWS connection. |
-| `local` | Docker/Moto API, CSV uploads, queued worker processing, DynamoDB-compatible state and real local report downloads. Data resets on server restart. |
-| `aws` | API Gateway/Cognito environment configuration, signed S3 upload/download and deployed service health. Cognito credentials are stored only in session storage. |
+| `demo` | Synthetic records and simulated outcomes; no API or AWS connection. |
+| `local` | Docker/Moto API, local uploads, queued processing, and report downloads. State resets when the API stops. |
+| `aws` | Connects to a deployed API Gateway and Cognito environment. Configure the API URL, Cognito settings, and AWS region. |
 
-See [`apps/web/.env.example`](apps/web/.env.example) and [Deployment](DEPLOYMENT.md) for real host and Cognito settings.
+The example file lists `VITE_API_URL`, `VITE_COGNITO_AUTHORITY`, `VITE_COGNITO_DOMAIN`, `VITE_COGNITO_CLIENT_ID`, `VITE_COGNITO_REDIRECT_URI`, `VITE_AWS_REGION`, and `VITE_ENVIRONMENT`. In AWS mode, Cognito tokens stay in browser session storage. The infrastructure has not been applied to a live AWS account from this repository.
 
-## Repository layout
+## Routes
 
-```text
-apps/api/                 HTTP API Lambda
-apps/worker/              CSV processor and SQS worker Lambda
-apps/web/                 React/TypeScript dashboard
-packages/shared/          Validation, state model, configuration and DynamoDB repository
-infrastructure/bootstrap/ Private S3 remote state, OIDC identities and optional budget alert
-infrastructure/modules/   Small IAM, S3, DynamoDB, SQS, Lambda, API, Cognito and observability modules
-infrastructure/environments/ Independent dev, staging and prod roots
-scripts/                  Local simulator, deterministic Lambda packager and smoke runner
-tests/unit/               CSV/report and request validation tests
-tests/integration/        Moto persistence, auth, event and worker lifecycle tests
-tests/e2e/                Complete in-memory upload-to-report workflow
-tests/infrastructure/     Terraform security, permissions and state contract checks
-```
+API routes require a Cognito access token except for `GET /health`.
 
-## CI, security and costs
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/health` | Public service liveness check. |
+| `POST` | `/v1/jobs` | Create an owner-scoped job with an idempotency key. |
+| `GET` | `/v1/jobs` | List and filter jobs for the authenticated owner. |
+| `GET` | `/v1/jobs/{jobId}` | Read an owned job and recent event history. |
+| `POST` | `/v1/jobs/{jobId}/cancel` | Cancel a job before processing begins. |
+| `POST` | `/v1/uploads/presign` | Create a short-lived, size-restricted upload policy. |
+| `GET` | `/v1/jobs/{jobId}/result` | Get a short-lived report download URL after completion. |
+| `GET` | `/v1/metrics/summary` | Read recent job and queue metrics; restricted to operators. |
 
-Pull requests run backend lint, types, coverage, dashboard checks, Terraform validation, mocked-provider tests and high/critical dependency/secret scanning. Terraform formats and security scans have no AWS credentials. `terraform` deployment is separate, manual, tied to a protected main ref, and uses per-environment OIDC roles and encrypted short-lived saved plans. Drift detection is a read-only weekly dev plan after credentials have been configured.
+Uploads are processed asynchronously through S3 events, EventBridge, SQS, and a worker Lambda. The worker checks required fields, duplicate rows, missing values, and numeric columns, then stores a report and bounded error sample. CSV uploads are limited to 10 MiB and 100,000 rows. See [Architecture](ARCHITECTURE.md) for the job lifecycle and API behavior.
 
-This serverless design avoids provisioned baseline compute, but AWS services are not universally free. Lambda concurrency, API throttling, 10 MiB uploads, 100,000 rows, file/log lifecycles and SQS retention have explicit bounds. Optional budget alerts do not cap spending. Consult [Costs](COSTS.md).
+## Local data and security
 
-## Verification status and limitations
+Demo data is synthetic. Local mode uses emulated AWS services and resets its state when the API stops. No live AWS telemetry or production data is included in the screenshot.
 
-The API, worker, CSV processor, local HTTP simulator, dashboard demo and integration tests run without a live AWS account. Terraform formatting, module validation, environment isolation, static Checkov controls and mocked-provider S3/SQS plan checks run locally/CI. GitHub records current workflow results. The AWS architecture has **not** been applied to a live account from this repository. The included dashboard screenshot is synthetic. No performance/availability measurements or certification are claimed. Review [scanner exceptions](docs/security/scanner-exceptions.md) and [known limits](docs/security/known-limitations.md).
+Private API routes use Cognito JWTs and owner-scoped job access. Upload and download links expire, file size and row count are bounded, and operations metrics are limited to the `operators` Cognito group. Pull-request checks run backend, dashboard, Terraform, dependency, and secret checks. Infrastructure deployment is a separate manual workflow using reviewed Terraform plans and per-environment OIDC roles.
+
+## Verification status and limits
+
+The API, worker, dashboard, Terraform checks, and test suites can be exercised without a live AWS account. The architecture has **not** been deployed from this repository, and no production availability or performance measurements are claimed. Review [known limitations](docs/security/known-limitations.md) and [scanner exceptions](docs/security/scanner-exceptions.md) for current project constraints.
+
+## Learn more
+
+- [Architecture](ARCHITECTURE.md) — services, data flow, and job lifecycle
+- [Deployment](DEPLOYMENT.md) — bootstrap, environments, and infrastructure workflow
+- [Security](SECURITY.md) — threat boundaries and security controls
+- [Costs](COSTS.md) — cost assumptions and budget guidance
+- [Operations](OPERATIONS.md) — metrics, alarms, and operational procedures
+- [Troubleshooting](TROUBLESHOOTING.md) — local and deployment troubleshooting
+- [Case study](CLOUD_CASE_STUDY.md) — project goals, tradeoffs, and implementation notes
