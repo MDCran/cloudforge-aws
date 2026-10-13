@@ -1,0 +1,108 @@
+name: Deploy infrastructure
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment (creates billable AWS resources)
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+permissions:
+  contents: read
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TARGET: ${{ inputs.environment }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_CONFIG: ${{ vars[format('TF_CONFIG_{0}', inputs.environment)] }}
+      PLAN_PASSPHRASE: ${{ secrets.PLAN_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Check deployment configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -n "$AWS_REGION" && test -n "$STATE_BUCKET" && test -n "$TF_CONFIG" && test -n "$PLAN_PASSPHRASE" || { echo 'Configure region, state bucket, TF_CONFIG, and plan encryption first.'; exit 1; }
+          if [ "$TARGET" != dev ]; then
+            gh api "repos/$GITHUB_REPOSITORY/environments/$TARGET" > environment.json
+            jq -e '.protection_rules | any(.type == "required_reviewers")' environment.json > /dev/null || { echo 'Staging and production require an environment reviewer rule.'; exit 1; }
+          fi
+          printf '%s' "$TF_CONFIG" | jq --arg region "$AWS_REGION" -e 'type == "object" and .region == $region' > /dev/null || { echo 'TF_CONFIG region must match AWS_REGION.'; exit 1; }
+          printf '%s' "$TF_CONFIG" > "infrastructure/environments/$TARGET/terraform.tfvars.json"
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          version: 0.8.22
+          python-version: '3.12'
+      - run: uv sync --locked
+      - run: uv run python scripts/package.py
+      - run: uv run python scripts/verify_packages.py
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          role-to-assume: ${{ vars[format('AWS_PLAN_ROLE_{0}', inputs.environment)] }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Create a reviewable plan
+        run: |
+          root="infrastructure/environments/$TARGET"
+          terraform -chdir="$root" init -input=false -lockfile=readonly -backend-config="bucket=$STATE_BUCKET" -backend-config="key=$TARGET/terraform.tfstate" -backend-config="region=$AWS_REGION" -backend-config=encrypt=true -backend-config=use_lockfile=true
+          terraform -chdir="$root" plan -input=false -out=deployment.tfplan > plan.log
+          terraform -chdir="$root" show -json deployment.tfplan | uv run python scripts/plan_summary.py >> "$GITHUB_STEP_SUMMARY"
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in "$root/deployment.tfplan" -out artifacts/deployment.tfplan.enc -pass env:PLAN_PASSPHRASE
+          printf '%s' "$GITHUB_SHA" > artifacts/source-revision.txt
+          (cd artifacts && sha256sum api.zip worker.zip manifest.json requirements.txt deployment.tfplan.enc source-revision.txt > checksums.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: deployment-${{ inputs.environment }}
+          path: artifacts/
+          retention-days: 1
+          if-no-files-found: error
+  apply:
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TARGET: ${{ inputs.environment }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      PLAN_PASSPHRASE: ${{ secrets.PLAN_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: deployment-${{ inputs.environment }}
+          path: artifacts/
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Apply the stored plan
+        run: |
+          test "$(cat artifacts/source-revision.txt)" = "$GITHUB_SHA"
+          (cd artifacts && sha256sum --check checksums.sha256)
+          root="infrastructure/environments/$TARGET"
+          openssl enc -d -aes-256-cbc -pbkdf2 -in artifacts/deployment.tfplan.enc -out "$root/deployment.tfplan" -pass env:PLAN_PASSPHRASE
+          terraform -chdir="$root" init -input=false -lockfile=readonly -backend-config="bucket=$STATE_BUCKET" -backend-config="key=$TARGET/terraform.tfstate" -backend-config="region=$AWS_REGION" -backend-config=encrypt=true -backend-config=use_lockfile=true
+          terraform -chdir="$root" apply -input=false deployment.tfplan > apply.log
+          echo "Applied reviewed $TARGET plan for $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+      - name: Deployment outcome
+        if: always()
+        run: echo 'Deployment job result — ${{ job.status }}' >> "$GITHUB_STEP_SUMMARY"
