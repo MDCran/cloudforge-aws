@@ -6,6 +6,8 @@ apps/web/dist
 **/.terraform
 **/*.tfstate*
 **/*.tfvars
+**/*.tfvars.json
+**/backend.hcl
 artifacts
 .env
 **/__pycache__

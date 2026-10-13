@@ -1,0 +1,8 @@
+scan:
+  skip-dirs:
+    - .venv
+    - .local
+    - artifacts
+    - apps/web/node_modules
+    - '**/.terraform'
+    - '**/.git/**'

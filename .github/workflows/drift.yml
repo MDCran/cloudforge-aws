@@ -1,0 +1,43 @@
+name: Detect infrastructure drift
+on:
+  schedule:
+    - cron: '19 11 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  drift:
+    if: vars.AWS_PLAN_ROLE_DEV != '' && vars.TF_STATE_BUCKET != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          version: 0.8.22
+          python-version: '3.12'
+      - run: uv sync --locked && uv run python scripts/package.py
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_DEV }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Read-only refresh plan
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          TF_CONFIG: ${{ vars.TF_CONFIG_DEV }}
+        run: |
+          root=infrastructure/environments/dev
+          printf '%s' "$TF_CONFIG" > "$root/terraform.tfvars.json"
+          terraform -chdir="$root" init -input=false -lockfile=readonly -backend-config="bucket=$STATE_BUCKET" -backend-config=key=dev/terraform.tfstate -backend-config="region=$AWS_REGION" -backend-config=encrypt=true -backend-config=use_lockfile=true
+          set +e
+          terraform -chdir="$root" plan -refresh-only -detailed-exitcode -input=false > drift.log
+          result=$?
+          set -e
+          if [ "$result" -eq 2 ]; then echo 'Drift detected. Review a manual refresh-only plan before reconciling state.' >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
+          if [ "$result" -ne 0 ]; then echo 'Drift check failed; inspect credentials and backend access.'; exit "$result"; fi
+          echo 'No remote drift detected in dev.' >> "$GITHUB_STEP_SUMMARY"

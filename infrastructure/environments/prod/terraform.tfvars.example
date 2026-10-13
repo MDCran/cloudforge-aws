@@ -1,0 +1,5 @@
+region = "us-east-1"
+alert_email = ""
+origins = ["http://localhost:5173"]
+callback_urls = ["http://localhost:5173/callback"]
+logout_urls = ["http://localhost:5173/"]

@@ -25,3 +25,50 @@ jobs:
       - run: uv run mypy apps packages scripts
       - run: uv run pytest --cov --cov-report=term-missing
       - run: docker build -t cloudforge-check .
+  infrastructure:
+    name: Terraform checks
+    runs-on: ubuntu-latest
+    env:
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugin-cache
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          version: 0.8.22
+          python-version: '3.12'
+          enable-cache: true
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - run: uv sync --locked
+      - run: uv run python scripts/package.py
+      - run: uv run python scripts/verify_packages.py
+      - run: terraform fmt -check -recursive infrastructure
+      - name: Validate isolated environment roots
+        run: |
+          for root in infrastructure/bootstrap infrastructure/environments/{dev,staging,prod}; do
+            terraform -chdir="$root" init -backend=false -input=false -lockfile=readonly
+            terraform -chdir="$root" validate
+          done
+      - name: Test storage and queue guarantees without AWS
+        run: |
+          for module in s3 sqs; do
+            terraform -chdir="infrastructure/modules/$module" init -backend=false -input=false -lockfile=readonly
+            terraform -chdir="infrastructure/modules/$module" test
+          done
+      - run: uvx --from checkov==3.2.459 checkov --config-file .checkov.yaml
+  security:
+    name: Dependency and secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          trivy-config: trivy.yaml

@@ -9,9 +9,12 @@ htmlcov/
 node_modules/
 dist/
 .terraform/
+.terraform-plugin-cache/
 *.tfstate*
 *.tfplan
 *.tfvars
+*.tfvars.json
+*.tsbuildinfo
 !*.tfvars.example
 .env
 !.env.example

@@ -1,0 +1,9 @@
+output "api_url" { value = module.api.url }
+output "user_pool_id" { value = module.auth.pool_id }
+output "client_id" { value = module.auth.client_id }
+output "auth_url" { value = "https://${module.auth.domain}.auth.${var.region}.amazoncognito.com" }
+output "dashboard_name" { value = module.observability.dashboard }
+output "upload_bucket" { value = module.uploads.id }
+output "result_bucket" { value = module.results.id }
+output "table_name" { value = module.table.name }
+output "queue_url" { value = module.queue.url }

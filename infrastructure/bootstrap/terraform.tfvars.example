@@ -1,0 +1,8 @@
+region = "us-east-1"
+state_bucket_name = "YOUR_UNIQUE_STATE_BUCKET"
+repository = "MDCran/cloudforge-aws"
+existing_oidc_provider_arn = ""
+apply_policy_arns = ["YOUR_REVIEWED_DEPLOYMENT_POLICY_ARN"]
+plan_policy_arns = ["YOUR_REVIEWED_PLAN_POLICY_ARN"]
+budget_email = ""
+monthly_budget_usd = 15
