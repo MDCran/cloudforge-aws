@@ -6,9 +6,19 @@ An event-driven CSV processing platform built with AWS serverless services. Uplo
 
 ## App screenshots
 
-The dashboard supports demo, local, and AWS connection modes. This capture uses synthetic demonstration data and does not represent a deployed AWS environment.
+These captures show the main dashboard workflows in demo mode. Records and outcomes are synthetic; no AWS resources are connected.
+
+### Overview
 
 ![CloudForge operations dashboard](docs/screenshots/overview.png)
+
+### Processing jobs
+
+![CloudForge processing jobs](docs/screenshots/jobs.png)
+
+### New job
+
+![CloudForge new job form](docs/screenshots/new-job.png)
 
 ## Stack
 
