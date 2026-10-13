@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 test('demo dashboard, status filter, history, and theme', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByText('You’re exploring synthetic sample data. No AWS resources are connected.')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Platform overview' })).toBeVisible();
+  await expect(page.getByText('Synthetic records only · no AWS resources connected.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Processing overview' })).toBeVisible();
   await page.getByRole('navigation').getByText('Processing jobs').click();
   await page.getByLabel('Filter jobs by status').selectOption('FAILED');
   await expect(page.getByRole('button', { name: /^Inventory snapshot/ })).toBeVisible();
