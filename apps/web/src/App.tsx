@@ -71,6 +71,17 @@ const navigation = [
   { page: "monitoring", label: "Monitoring", icon: GitBranch },
   { page: "settings", label: "Settings", icon: Settings2 },
 ] as const;
+const pageDescriptions: Record<Page, string> = {
+  overview: "CSV jobs, validation outcomes, and recent activity.",
+  jobs: "Search jobs by name, file, or processing state.",
+  upload: "Turn a CSV file into a structured validation report.",
+  history: "Follow each job through its recorded state changes.",
+  files: "Find source files and download completed reports.",
+  health: "Check API reachability and processing guarantees.",
+  monitoring: "Review queue depth and service-level signals.",
+  settings: "Review runtime mode, limits, and authentication.",
+  detail: "Inspect input details, results, and state changes.",
+};
 const cancellable = new Set<Status>(["CREATED", "UPLOADING", "QUEUED"]);
 const label = (status: string) =>
   status.charAt(0) + status.slice(1).toLowerCase();
@@ -302,9 +313,7 @@ export function App() {
       </a>
       <aside className="sidebar">
         <a className="brand" href="#" onClick={() => setPage("overview")}>
-          <span className="brand-mark">
-            <Layers3 size={22} />
-          </span>
+          <span className="brand-mark" aria-hidden="true">CF</span>
           cloudforge<span className="brand-dot">.</span>
         </a>
         <div className="workspace-switch">
@@ -312,8 +321,20 @@ export function App() {
             <Cloud size={19} />
           </span>
           <div>
-            <strong>AWS workspace</strong>
-            <small>Serverless infrastructure</small>
+            <strong>
+              {mode === "aws"
+                ? "AWS workspace"
+                : mode === "local"
+                  ? "Local workspace"
+                  : "Demo workspace"}
+            </strong>
+            <small>
+              {mode === "aws"
+                ? "Serverless infrastructure"
+                : mode === "local"
+                  ? "Docker + Moto services"
+                  : "Synthetic CSV records"}
+            </small>
           </div>
           <span className="env-pill">
             {mode === "aws" ? import.meta.env.VITE_ENVIRONMENT || "dev" : mode}
@@ -342,11 +363,11 @@ export function App() {
         <div className="sidebar-bottom">
           <div className="architecture-note">
             <ShieldCheck size={19} />
-            <strong>Built for reliable work</strong>
+            <strong>Operational controls</strong>
             <p>
-              Private storage. Scoped access.
+              Private buckets. Owner-scoped jobs.
               <br />
-              Recoverable processing.
+              Expiring upload links.
             </p>
             <a
               href="https://github.com/MDCran/cloudforge-aws/blob/main/ARCHITECTURE.md"
@@ -371,7 +392,11 @@ export function App() {
             </span>
             <div>
               <strong>
-                {mode === "aws" ? "Cloud workspace" : "Portfolio workspace"}
+                {mode === "aws"
+                  ? "AWS workspace"
+                  : mode === "local"
+                    ? "Local workspace"
+                    : "Demo workspace"}
               </strong>
               <small>
                 {mode === "demo"
@@ -408,15 +433,17 @@ export function App() {
             >
               {dark ? <Sun size={19} /> : <Moon size={19} />}
             </button>
-            <span className="topbar-status">
+            <span
+              className={`topbar-status ${mode === "demo" ? "is-demo" : health.isError ? "is-error" : health.data ? "is-live" : "is-checking"}`}
+            >
               <span />
               {health.isError
                 ? "API unreachable"
-                : health.data
-                  ? mode === "demo"
-                    ? "Demo workspace"
-                    : "API reachable"
-                  : "Checking API"}
+                : mode === "demo"
+                  ? "Synthetic data"
+                  : health.data
+                    ? "API reachable"
+                    : "Checking API"}
             </span>
           </div>
         </header>
@@ -424,8 +451,8 @@ export function App() {
           <div className="mode-banner">
             <span className="mode-tag">{mode.toUpperCase()}</span>
             {mode === "demo"
-              ? "You’re exploring synthetic sample data. No AWS resources are connected."
-              : "Local simulation · in-memory AWS services · data resets when the API restarts."}
+              ? "Synthetic records only · no AWS resources connected."
+              : "Local simulator · in-memory AWS services · data resets on restart."}
             <a
               href="https://github.com/MDCran/cloudforge-aws/blob/main/DEPLOYMENT.md"
               target="_blank"
@@ -442,14 +469,8 @@ export function App() {
                 CLOUDFORGE /{" "}
                 {page === "overview" ? "OPERATIONS" : title.toUpperCase()}
               </p>
-              <h1>{page === "overview" ? "Platform overview" : title}</h1>
-              <p>
-                {page === "overview"
-                  ? "Track your workloads. Understand your data. Keep things moving."
-                  : page === "upload"
-                    ? "Turn a CSV file into a structured validation report."
-                    : "A closer look at your processing workspace."}
-              </p>
+              <h1>{page === "overview" ? "Processing overview" : title}</h1>
+              <p>{pageDescriptions[page]}</p>
             </div>
             <div className="heading-actions">
               <Button
@@ -499,9 +520,9 @@ export function App() {
                       <div className="stat-grid">
                         {[
                           {
-                            title: "Total jobs",
+                            title: "Jobs in view",
                             value: jobs.length.toLocaleString(),
-                            detail: "In the loaded job set",
+                            detail: "Current loaded set",
                             icon: Layers3,
                           },
                           {
@@ -556,13 +577,11 @@ export function App() {
                                 Processing activity{" "}
                                 <span className="small-badge">
                                   {mode === "demo"
-                                    ? "Sample data"
+                                    ? "DEMO DATA"
                                     : "Loaded jobs"}
                                 </span>
                               </h2>
-                              <p>
-                                Current outcomes, grouped by job creation date
-                              </p>
+                              <p>Completed and failed jobs by creation date</p>
                             </div>
                             <Activity size={19} className="muted" />
                           </div>
@@ -601,12 +620,12 @@ export function App() {
                                   >
                                     <stop
                                       offset="0%"
-                                      stopColor="#5e81ac"
-                                      stopOpacity={0.25}
+                                      stopColor="var(--accent)"
+                                      stopOpacity={0.24}
                                     />
                                     <stop
                                       offset="100%"
-                                      stopColor="#5e81ac"
+                                      stopColor="var(--accent)"
                                       stopOpacity={0}
                                     />
                                   </linearGradient>
@@ -618,6 +637,12 @@ export function App() {
                                 />
                                 <XAxis
                                   dataKey="day"
+                                  tickFormatter={(day: string) =>
+                                    new Date(`${day}T00:00:00`).toLocaleDateString(
+                                      "en-US",
+                                      { month: "short", day: "numeric" },
+                                    )
+                                  }
                                   tick={{ fontSize: 11, fill: "var(--muted)" }}
                                   axisLine={false}
                                   tickLine={false}
@@ -638,18 +663,18 @@ export function App() {
                                 <Area
                                   type="monotone"
                                   dataKey="completed"
-                                  stroke="#5e81ac"
+                                  stroke="var(--accent)"
                                   fill="url(#fill)"
-                                  strokeWidth={2.5}
-                                  dot={{ r: 4, fill: "#5e81ac" }}
+                                  strokeWidth={2.25}
+                                  dot={{ r: 3, fill: "var(--accent)" }}
                                 />
                                 <Area
                                   type="monotone"
                                   dataKey="failed"
-                                  stroke="#bf616a"
+                                  stroke="var(--danger)"
                                   fill="transparent"
-                                  strokeWidth={2}
-                                  dot={{ r: 3, fill: "#bf616a" }}
+                                  strokeWidth={1.75}
+                                  dot={{ r: 2.5, fill: "var(--danger)" }}
                                 />
                               </AreaChart>
                             </ResponsiveContainer>
@@ -659,15 +684,11 @@ export function App() {
                           <div className="pipeline-icon">
                             <GitBranch size={25} />
                           </div>
-                          <p className="eyebrow">EVENT-DRIVEN BY DESIGN</p>
-                          <h2>
-                            Small services.
-                            <br />
-                            Reliable pipelines.
-                          </h2>
+                          <p className="eyebrow">PROCESSING PATH</p>
+                          <h2>From upload to report</h2>
                           <p>
-                            Files move through a decoupled processing pipeline,
-                            with retries and a dead-letter queue.
+                            Each stage hands work forward. Retries and a
+                            dead-letter queue handle failures.
                           </p>
                           <div className="pipeline-steps">
                             {[
@@ -1102,8 +1123,7 @@ export function App() {
           )}
           <footer className="main-footer">
             <span>
-              CloudForge <span className="muted">/</span> Serverless
-              infrastructure platform
+              CloudForge <span className="muted">/</span> CSV processing
             </span>
             <span>
               <GitBranch size={13} />
