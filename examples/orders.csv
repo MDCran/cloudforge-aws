@@ -1,0 +1,7 @@
+order_id,customer,amount,region
+ORD-1001,Ada,129.50,East
+ORD-1002,Grace,89.00,West
+ORD-1003,Linus,214.25,North
+ORD-1003,Linus,214.25,North
+ORD-1004,,44.00,South
+ORD-1005,James,invalid,East
