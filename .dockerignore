@@ -1,0 +1,11 @@
+.git
+.venv
+.local
+apps/web/node_modules
+apps/web/dist
+**/.terraform
+**/*.tfstate*
+**/*.tfvars
+artifacts
+.env
+**/__pycache__
